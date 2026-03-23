@@ -1,230 +1,149 @@
 # Docker Setup Guide for Backend
 
-This guide explains how to run the NestJS backend using Docker and Docker Compose.
+This guide explains how to run the NestJS backend with Docker and Docker Compose.
 
 ## Prerequisites
 
-- Docker installed ([download](https://www.docker.com/products/docker-desktop))
-- Docker Compose installed (usually bundled with Docker Desktop)
+- Docker Desktop installed
+- Docker Compose available (`docker compose`)
 - Git
 
-## Quick Start
+## Project Layout
 
-### Option 1: Using Docker Compose (Recommended)
-
-Docker Compose handles both the backend and MongoDB database automatically.
+Run compose from the project root where `docker-compose.yml` exists:
 
 ```bash
-# From project root directory
-docker-compose up --build
+Mayfare/
+  docker-compose.yml
+  MindStack-Backend/
+```
+
+## Quick Start (Recommended)
+
+```bash
+# From project root (Mayfare)
+docker compose up --build
 ```
 
 This will:
-- Build the backend Docker image
-- Start MongoDB with proper initialization
-- Start the backend on port 3000
-- Mount `Backend/src/` for live reload in development mode
+- Build the backend image from `MindStack-Backend/Dockerfile`
+- Start MongoDB with authentication
+- Start backend on `http://localhost:3000`
+- Mount `MindStack-Backend/src/` for live reload
 
-Access the API at: `http://localhost:3000`
+## Environment Variables
 
-### Option 2: Build and Run Manually
+The backend service loads values from:
+- `MindStack-Backend/.env` via `env_file`
 
-```bash
-# Navigate to Backend directory
-cd Backend
+Compose also supports these optional variables (with defaults) from your shell or root `.env` file:
+- `MONGO_INITDB_ROOT_USERNAME` (default: `admin`)
+- `MONGO_INITDB_ROOT_PASSWORD` (default: `password`)
 
-# Build the Docker image
-docker build -t dacs-backend:latest .
+If you want custom Mongo credentials, set both before startup and keep backend URI in sync.
 
-# Run container (with MongoDB running separately)
-docker run -p 3000:3000 \
-  -e MONGODB_URI=mongodb://localhost:27017/dacs \
-  -e NODE_ENV=production \
-  dacs-backend:latest
-```
+Example PowerShell session:
 
-## Configuration
-
-### Environment Variables
-
-Edit the `docker-compose.yml` to add your environment variables:
-
-```yaml
-environment:
-  NODE_ENV: development
-  PORT: 3000
-  MONGODB_URI: mongodb://admin:password@mongodb:27017/dacs?authSource=admin
-  FIREBASE_PROJECT_ID: your_project_id
-  FIREBASE_PRIVATE_KEY: your_private_key
-  FIREBASE_CLIENT_EMAIL: your_client_email
-  GOOGLE_GEMINI_API_KEY: your_gemini_key
-  SENDGRID_API_KEY: your_sendgrid_key
-  VNPAY_TERMINAL_ID: your_vnpay_id
-  PAYPAL_CLIENT_ID: your_paypal_id
-  # ... other variables
-```
-
-Or create a `.env` file and reference it:
-
-```yaml
-env_file:
-  - .env
+```powershell
+$env:MONGO_INITDB_ROOT_USERNAME = "admin"
+$env:MONGO_INITDB_ROOT_PASSWORD = "strong-password"
+docker compose up --build
 ```
 
 ## Common Commands
 
 ```bash
-# Start services in background
-docker-compose up -d
+# Start in background
+docker compose up -d --build
+
+# View service status
+docker compose ps
 
 # View logs
-docker-compose logs -f backend
+docker compose logs -f backend
+docker compose logs -f mongodb
 
 # Stop services
-docker-compose down
+docker compose down
 
-# Rebuild after code changes
-docker-compose up --build
+# Stop and remove volume (clean Mongo data)
+docker compose down -v
 
-# Remove volumes (clean database)
-docker-compose down -v
+# Shell into backend container
+docker compose exec backend sh
 
-# Run a command in the container
-docker-compose exec backend npm run seed
-
-# Shell access to backend
-docker-compose exec backend sh
-
-# Check container status
-docker-compose ps
+# Run seed scripts
+docker compose exec backend npm run seed
+docker compose exec backend npm run seed:simple
+docker compose exec backend npm run seed:clean
 ```
 
-## Development Workflow
-
-### With Hot Reload (Recommended)
-
-The `docker-compose.yml` is configured for development with:
-- Hot reload enabled (mounts `Backend/src/`)
-- Running `npm run start:dev`
-- All logs visible
+## Manual Image Run (Without Compose)
 
 ```bash
-docker-compose up
-```
+# From project root
+cd MindStack-Backend
 
-### Production Build
+docker build -t mindstack-backend:latest .
 
-```bash
-# Build optimized image
-docker build -t dacs-backend:prod --target builder Backend/
-
-# Run with environment variables
 docker run -p 3000:3000 \
   -e NODE_ENV=production \
-  -e MONGODB_URI=mongodb://your-production-db \
-  dacs-backend:prod
+  -e MONGODB_URI=mongodb://localhost:27017/dacn \
+  mindstack-backend:latest
 ```
 
-## Database Access
-
-### MongoDB from Docker
+## MongoDB Access
 
 ```bash
-# Connect to MongoDB container
-docker-compose exec mongodb mongosh -u admin -p password
+# Connect to Mongo inside compose network
+docker compose exec mongodb mongosh -u admin -p password --authenticationDatabase admin
 
-# Or from host machine (if exposed)
-mongosh "mongodb://admin:password@localhost:27017/dacs?authSource=admin"
-```
-
-### Seed Database
-
-```bash
-docker-compose exec backend npm run seed
-docker-compose exec backend npm run seed:simple
-docker-compose exec backend npm run seed:clean
+# Connect from host
+mongosh "mongodb://admin:password@localhost:27017/dacn?authSource=admin"
 ```
 
 ## Troubleshooting
 
-### Port Already in Use
+### Port 3000 already in use
 
-```bash
-# Find and kill process using port 3000
-lsof -i :3000  # macOS/Linux
-netstat -ano | findstr :3000  # Windows
-
-# Or use different ports in docker-compose.yml
-ports:
-  - "3001:3000"  # Map 3001 on host to 3000 in container
+```powershell
+netstat -ano | findstr :3000
 ```
 
-### MongoDB Connection Refused
+Then stop the conflicting process, or change compose port mapping.
+
+### Backend cannot connect to MongoDB
 
 ```bash
-# Check MongoDB is healthy
-docker-compose ps
-
-# View MongoDB logs
-docker-compose logs mongodb
-
-# Restart MongoDB
-docker-compose restart mongodb
+docker compose ps
+docker compose logs mongodb
+docker compose logs backend
 ```
 
-### Permission Denied Errors
+Check:
+- `mongodb` is `healthy`
+- backend uses `mongodb` hostname (not `localhost`) in container URI
+- Mongo credentials match between services
+
+### Hot reload not working
+
+Check that `MindStack-Backend/src/` is mounted and backend is running `npm run start:dev`.
 
 ```bash
-# Ensure proper permissions
-docker-compose down
-docker-compose up --build
-
-# Or run with sudo (not recommended)
-sudo docker-compose up
+docker compose logs -f backend
 ```
 
-### Hot Reload Not Working
+Look for watch mode output from NestJS.
 
-- Ensure `Backend/src/` is mounted in `docker-compose.yml`
-- Restart container: `docker-compose restart backend`
-- Check file system events are supported: `npm run start:dev` in container logs should show "watching for file changes"
+## Security Notes
 
-## Deployment to Cloud
-
-### Docker Hub
-
-```bash
-# Build image
-docker build -t your-username/dacs-backend:latest Backend/
-
-# Push to Docker Hub
-docker login
-docker push your-username/dacs-backend:latest
-```
-
-### AWS/Google Cloud
-
-See `README.md` deployment section for cloud-specific instructions.
-
-## Performance Tips
-
-1. **Use .dockerignore** - Already configured to exclude unnecessary files
-2. **Multi-stage builds** - Dockerfile uses builder stage for smaller production images
-3. **Alpine Linux** - Using lightweight `node:18-alpine` base
-4. **Non-root user** - Container runs as `nodejs` user for security
-5. **Health checks** - MongoDB has health check configured
-
-## Security
-
-- Container runs as non-root user `nodejs`
-- MongoDB requires authentication (admin:password)
-- Use strong passwords in production
-- Keep Docker and base images updated
-- Never commit `.env` files with real credentials
-- Use secrets management in production (AWS Secrets Manager, etc.)
+- Do not commit real secrets to any `.env` file.
+- Use strong Mongo credentials outside local development.
+- Restrict CORS and API keys before production deployment.
+- Prefer secret managers for cloud environments.
 
 ## Further Reading
 
-- [Docker Documentation](https://docs.docker.com/)
-- [NestJS Docker Deployment](https://docs.nestjs.com/deployment)
-- [MongoDB Docker Hub](https://hub.docker.com/_/mongo)
+- Docker docs: https://docs.docker.com/
+- NestJS deployment: https://docs.nestjs.com/deployment
+- MongoDB image: https://hub.docker.com/_/mongo
